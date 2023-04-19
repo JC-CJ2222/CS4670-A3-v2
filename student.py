@@ -1,6 +1,6 @@
 # Please place imports here.
 # BEGIN IMPORTS
-
+import numpy as np
 # END IMPORTS
 
 
@@ -27,7 +27,31 @@ def compute_photometric_stereo_impl(lights, images):
         normals -- float32 height x width x 3 image with dimensions matching
                    the input images.
     """
-    raise NotImplementedError()
+    N = len(images)
+    h, w, c = images[0].shape
+    I = np.reshape(images, (N, (h * w * c)))
+    L = lights
+    G = np.linalg.inv((L@L.T))@L@I
+    p = np.linalg.norm(G, axis=0)
+    rho = np.reshape(p, (h, w, c))  # to 2D --> 3D
+
+    G_reshape = np.reshape(G, (3, (h * w), c))
+    G_sum = np.sum(G_reshape, axis=2)  # 3 * (h*w)
+    G_norm = np.linalg.norm(G_sum, axis=0)  # 1 * (h*w)
+    G_norm = np.reshape(G_norm, (h, w))
+    normals = np.zeros(h, w, 3)
+    G_reshape = np.reshape(G, (3, h, w, c))
+    for i in G_reshape.shape[1]:
+        for j in G_reshape.shape[2]:
+            for k in G_reshape.shape[3]:
+                n = G_reshape[:, i, j, k]/G_norm[i, j]
+                normals[i][j] = n
+                g = np.norm(rho[i, j, :])
+                if (g < np.exp(-7)):
+                    rho[i, j] = 0
+                    normals[i, j] = 0
+    return rho, normals
+    #raise NotImplementedError()
 
 
 def pyrdown_impl(image):
