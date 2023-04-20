@@ -1,6 +1,7 @@
 # Please place imports here.
 # BEGIN IMPORTS
 import numpy as np
+import cv2
 # END IMPORTS
 
 
@@ -39,20 +40,18 @@ def compute_photometric_stereo_impl(lights, images):
     G_sum = np.sum(G_reshape, axis=2)  # 3 * (h*w)
     G_norm = np.linalg.norm(G_sum, axis=0)  # 1 * (h*w)
     G_norm = np.reshape(G_norm, (h, w))
-    normals = np.zeros(h, w, 3)
+    normals = np.zeros((h, w, 3))
     G_reshape = np.reshape(G, (3, h, w, c))
-    for i in G_reshape.shape[1]:
-        for j in G_reshape.shape[2]:
-            for k in G_reshape.shape[3]:
+    for i in range(G_reshape.shape[1]):
+        for j in range(G_reshape.shape[2]):
+            for k in range(G_reshape.shape[3]):
                 n = G_reshape[:, i, j, k]/G_norm[i, j]
                 normals[i][j] = n
-                g = np.norm(rho[i, j, :])
+                g = np.linalg.norm(rho[i, j, :])
                 if (g < np.exp(-7)):
                     rho[i, j] = 0
                     normals[i, j] = 0
     return rho, normals
-    #raise NotImplementedError()
-
 
 def pyrdown_impl(image):
     """
@@ -82,7 +81,14 @@ def pyrdown_impl(image):
         down -- ceil(height/2) x ceil(width/2) x channels image of type
                 float32.
     """
-    raise NotImplementedError()
+    c = image.shape[2]
+    filter = 1/16 * np.array([1, 4, 6, 4, 1 ])
+    image = cv2.filter2D(src = image, ddepth = -1, kernel = filter)
+    image = cv2.filter2D(src = image, ddepth = -1, kernel = filter.T)
+    down = image[::2, ::2]
+    if (c == 1):
+        down = np.reshape(down, (down.shape[0], down.shape[1], 1))
+    return down
 
 
 def pyrup_impl(image):
@@ -108,8 +114,16 @@ def pyrup_impl(image):
     Output:
         up -- 2*height x 2*width x channels image of type float32.
     """
-    raise NotImplementedError()
-
+    filter = 1/8 * np.array([ 1, 4, 6, 4, 1 ])
+    h,w,c = image.shape
+    image_up = np.zeros((2*h, 2*w, c))
+    for i in range(c):
+        image_up[::2, ::2, i] = image[:, :, i]
+    image_up = cv2.filter2D(src = image_up, ddepth = -1, kernel = filter)
+    image_up = cv2.filter2D(src = image_up, ddepth = -1, kernel = filter.T)
+    if (c == 1):
+        image_up = np.reshape(image_up, (image_up.shape[0], image_up.shape[1], 1))
+    return image_up
 
 def project_impl(K, Rt, points):
     """
@@ -122,8 +136,17 @@ def project_impl(K, Rt, points):
     Output:
         projections -- height x width x 2 array of 2D projections
     """
-    raise NotImplementedError()
-
+    P = K @ Rt
+    h, w, c = points.shape
+    projections = np.zeros((h, w, 2))
+    for i in range(h):
+        for j in range(w):
+            pixel = np.ones((4, 1))
+            pixel[0:3, 0] = points[i, j, :]
+            x_img = P @ pixel
+            projections[i, j, 0] = x_img[0]/x_img[2]
+            projections[i, j, 1] = x_img[1]/x_img[2]      
+    return projections
 
 def unproject_corners_impl(K, width, height, depth, Rt):
     """
@@ -170,7 +193,26 @@ def unproject_corners_impl(K, width, height, depth, Rt):
     Output:
         points -- 2 x 2 x 3 array of 3D points
     """
-    raise NotImplementedError()
+    points = np.zeros((2,2,3))
+    R = np.zeros((4,4))
+    R[0:3,:] = Rt
+    R[3,3] = 1
+    R_inv = np.linalg.inv(R)
+    for i in range(2):
+        for j in range(2):
+            tmp = np.zeros((1,3))
+            if (i == 1):
+                tmp[0, 1] = height
+            if (j == 1):
+                tmp[0, 0] = width
+            tmp[0, 2] = 1
+            tmp = np.linalg.inv(K) @ tmp.T
+            tmp = depth * tmp
+            tmp = R_inv[0:3,0:3] @ tmp + R_inv[0,3]
+            points[i, j, 0] = tmp[0, 0]
+            points[i, j, 1] = tmp[1, 0]
+            points[i, j, 2] = tmp[2, 0]
+    return points
 
 
 def preprocess_ncc_impl(image, ncc_size):
@@ -220,7 +262,34 @@ def preprocess_ncc_impl(image, ncc_size):
     Output:
         normalized -- heigth x width x (channels * ncc_size**2) array
     """
-    raise NotImplementedError()
+    h, w, c = image.shape
+    normalized = np.zeros((h,w,c*ncc_size**2))
+    for i in range(h):
+        for j in range(w):
+            image_copy = np.copy(image)
+            size = ncc_size//2
+            left_inx = j-size
+            right_inx = j+size
+            top_inx = i+size
+            bottom_inx = i-size
+            if (left_inx < 0 or right_inx >= w or bottom_inx < 0 or top_inx >= h):
+                patch = np.zeros((c * ncc_size**2))
+            else:
+                patch = image_copy[bottom_inx:top_inx+1, left_inx:right_inx+1,:]
+                for k in range(c): # subtract mean
+                    mean = np.mean(patch[:,:,k])               
+                    patch[:,:,k] = patch[:,:,k] - mean
+                temp = np.array([]) # flatten
+                for k in range(c):
+                    temp = np.concatenate((temp, patch[:, :, k].flatten()))
+                patch = temp
+                norm = np.linalg.norm(patch)
+                if norm < 1e-6: # check norm
+                    patch = np.zeros((c * ncc_size**2))
+                else: 
+                    patch = patch/norm
+            normalized[i,j] = patch
+    return normalized
 
 
 def compute_ncc_impl(image1, image2):
@@ -235,4 +304,9 @@ def compute_ncc_impl(image1, image2):
         ncc -- height x width normalized cross correlation between image1 and
                image2.
     """
-    raise NotImplementedError()
+    h, w, t = image1.shape
+    ncc = np.zeros((h, w))
+    for i in range(h):
+        for j in range(w):
+            ncc[i, j] = image1[i, j, :] @ image2[i, j, :]
+    return ncc
