@@ -39,11 +39,10 @@ def compute_photometric_stereo_impl(lights, images):
     G_reshape = np.reshape(G, (3, h, w, c)) # 3*h*w*c
     G_prime = np.sum(G_reshape, axis = 3)
     normals = G_prime / np.maximum(1e-7, np.linalg.norm(G_prime, axis=0))
-    normals = np.moveaxis(G_prime, 0, 2)
+    normals = np.moveaxis(normals, 0, 2)
 
     cond = np.linalg.norm(rho, axis=2) < 1e-7
     rho[cond, :] = 0.0
-    # G_sum[cond, :] = 0.0
     normals[cond, :] = 0.0
 
     return rho, normals
