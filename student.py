@@ -77,8 +77,8 @@ def pyrdown_impl(image):
     """
     c = image.shape[2]
     filter = 1/16 * np.array([1, 4, 6, 4, 1 ])
-    image = cv2.filter2D(src = image, ddepth = -1, kernel = filter[:, np.newaxis])
-    image = cv2.filter2D(src = image, ddepth = -1, kernel = filter[:, np.newaxis].T)
+    image = cv2.filter2D(src = image, ddepth = -1, kernel = filter[:, np.newaxis], borderType = cv2.BORDER_REFLECT_101)
+    image = cv2.filter2D(src = image, ddepth = -1, kernel = filter[:, np.newaxis].T, borderType = cv2.BORDER_REFLECT_101)
     down = image[::2, ::2]
     if (c == 1):
         down = np.reshape(down, (down.shape[0], down.shape[1], 1))
@@ -112,8 +112,8 @@ def pyrup_impl(image):
     h,w,c = image.shape
     image_up = np.zeros((2*h, 2*w, c))
     image_up[::2, ::2] = image[:, :]
-    image_up = cv2.filter2D(src = image_up, ddepth = -1, kernel = filter[:, np.newaxis])
-    image_up = cv2.filter2D(src = image_up, ddepth = -1, kernel = filter[:, np.newaxis].T)
+    image_up = cv2.filter2D(src = image_up, ddepth = -1, kernel = filter[:, np.newaxis], borderType = cv2.BORDER_REFLECT_101)
+    image_up = cv2.filter2D(src = image_up, ddepth = -1, kernel = filter[:, np.newaxis].T, borderType = cv2.BORDER_REFLECT_101)
     if (c == 1):
         image_up = np.reshape(image_up, (image_up.shape[0], image_up.shape[1], 1))
     return image_up
@@ -192,17 +192,11 @@ def unproject_corners_impl(K, width, height, depth, Rt):
         points -- 2 x 2 x 3 array of 3D points
     """
     points = np.zeros((2,2,3))
-    R = np.zeros((4,4))
-    R[0:3,:] = Rt
-    R[3,3] = 1
-    R_inv = np.linalg.inv(R)
-    # print(Rt)
-    # print(R)
-    # print(R_inv)
     output = np.array([[0, 0, 1], [width, 0, 1], [0, height, 1], [width, height, 1]]).reshape(2, 2, 3)
     points = np.tensordot(output, np.linalg.inv(K).T, axes = 1)
     points = depth * points
-    points = np.tensordot(points, R_inv[0:3, 0:3].T, axes = 1) + R_inv[0, 3]
+    points = np.tensordot(points, Rt[0:3, 0:3], axes = 1)
+    points = points - Rt[:3, :3].T.dot(Rt[:3, 3])
     return points
 
 
